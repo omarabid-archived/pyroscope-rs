@@ -20,3 +20,18 @@ jobs:
         run: |
           cargo login ${{ secrets.CARGO_TOKEN }}
           cargo publish
+  publish-cli:
+    name: Publish Pyroscope CLI 
+    runs-on: ubuntu-latest
+    if: "startsWith(github.event.release.tag_name, 'cli-')"
+    steps:
+      - uses: actions/checkout@v1
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: publish pyroscope crate
+        continue-on-error: true
+        run: |
+          cargo login ${{ secrets.CARGO_TOKEN }}
+          cargo publish
