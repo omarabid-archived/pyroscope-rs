@@ -21,29 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/cli-')"
     steps:
-      - name: install libunwind (for pprof)
-        run: sudo apt install libunwind8-dev
-
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: omarabid-forks/rs-toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - name: Test & Build
-        uses: omarabid-forks/rs-cargo@v1
-        with:
-          args: --manifest-path pyroscope_cli/Cargo.toml
-          command: build
-      - name: Dump env
-        run: env | sort
-      - name: Dump GitHub context
-        env:
-          GITHUB_CONTEXT: ${{ toJson(github) }}
-        run: echo "$GITHUB_CONTEXT"
       - uses: "marvinpinto/action-automatic-releases@v1.1.1"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -52,7 +29,7 @@ jobs:
           draft: true
           prerelease: false
   cli-artifacts:
-    name: build pyroscope-cli aritifacts
+    name: pyroscope-cli - build aritifacts
     needs: ['cli-release']
     runs-on: ${{ matrix.os }}
     env:
@@ -65,8 +42,6 @@ jobs:
       TARGET_DIR: ./target
       # Emit backtraces on panics.
       RUST_BACKTRACE: 1
-      # Build static releases with PCRE2.
-      PCRE2_SYS_STATIC: 1
     strategy:
       matrix:
         build: [linux, linux-arm, macos]
@@ -110,11 +85,11 @@ jobs:
         echo "target dir is: ${{ env.TARGET_DIR }}"
 
     - name: Build release binary
-      run: ${{ env.CARGO }} build --verbose --release --features pcre2 ${{ env.TARGET_FLAGS }}
+      run: ${{ env.CARGO }} build --manifest-path pyroscope_cli/Cargo.toml --verbose --release ${{ env.TARGET_FLAGS }}
 
     - name: Strip release binary (linux and macos)
       if: matrix.build == 'linux' || matrix.build == 'macos'
-      run: strip "target/${{ matrix.target }}/release/rg"
+      run: strip "pyroscope_cli/target/${{ matrix.target }}/release/pyroscope-cli"
 
     - name: Strip release binary (arm)
       if: matrix.build == 'linux-arm'
@@ -123,7 +98,7 @@ jobs:
           "$PWD/target:/target:Z" \
           rustembedded/cross:arm-unknown-linux-gnueabihf \
           arm-linux-gnueabihf-strip \
-          /target/arm-unknown-linux-gnueabihf/release/rg
+          /target/arm-unknown-linux-gnueabihf/release/pyroscope-cli
 
     - name: Upload release archive
       uses: actions/upload-release-asset@v1.0.1
@@ -131,6 +106,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ${{ env.ASSET }}
-        asset_name: ${{ env.ASSET }}
+        asset_path: "pyroscope_cli/target/${{ matrix.target }}/release/pyroscope-cli"
+        asset_name: "pyroscope-cli"
         asset_content_type: application/octet-stream
