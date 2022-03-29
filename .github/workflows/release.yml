@@ -6,12 +6,14 @@ jobs:
   lib-release:
     name: pyroscope-main 
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
+    if: "startsWith(github.ref, 'refs/tags/lib-')"
     continue-on-error: true
     steps:
       - uses: "marvinpinto/action-automatic-releases@v1.1.1"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "${{ github.ref_name }}"
+          title: "pyroscope-${{ github.ref_name }}"
           draft: true
           prerelease: false
   cli-release:
@@ -49,3 +51,86 @@ jobs:
           title: "pyroscope-${{ github.ref_name }}"
           draft: true
           prerelease: false
+  cli-artifacts:
+    name: build pyroscope-cli aritifacts
+    needs: ['cli-release']
+    runs-on: ${{ matrix.os }}
+    env:
+      # For some builds, we use cross to test on 32-bit and big-endian
+      # systems.
+      CARGO: cargo
+      # When CARGO is set to CROSS, this is set to `--target matrix.target`.
+      TARGET_FLAGS: ""
+      # When CARGO is set to CROSS, TARGET_DIR includes matrix.target.
+      TARGET_DIR: ./target
+      # Emit backtraces on panics.
+      RUST_BACKTRACE: 1
+      # Build static releases with PCRE2.
+      PCRE2_SYS_STATIC: 1
+    strategy:
+      matrix:
+        build: [linux, linux-arm, macos]
+        include:
+        - build: linux
+          os: ubuntu-18.04
+          rust: stable
+          target: x86_64-unknown-linux-musl
+        - build: linux-arm
+          os: ubuntu-18.04
+          rust: stable
+          target: arm-unknown-linux-gnueabihf
+        - build: macos
+          os: macos-latest
+          rust: stable
+          target: x86_64-apple-darwin
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        profile: minimal
+        override: true
+        target: ${{ matrix.target }}
+
+    - name: Use Cross
+      shell: bash
+      run: |
+        cargo install cross
+        echo "CARGO=cross" >> $GITHUB_ENV
+        echo "TARGET_FLAGS=--target ${{ matrix.target }}" >> $GITHUB_ENV
+        echo "TARGET_DIR=./target/${{ matrix.target }}" >> $GITHUB_ENV
+
+    - name: Show command used for Cargo
+      run: |
+        echo "cargo command is: ${{ env.CARGO }}"
+        echo "target flag is: ${{ env.TARGET_FLAGS }}"
+        echo "target dir is: ${{ env.TARGET_DIR }}"
+
+    - name: Build release binary
+      run: ${{ env.CARGO }} build --verbose --release --features pcre2 ${{ env.TARGET_FLAGS }}
+
+    - name: Strip release binary (linux and macos)
+      if: matrix.build == 'linux' || matrix.build == 'macos'
+      run: strip "target/${{ matrix.target }}/release/rg"
+
+    - name: Strip release binary (arm)
+      if: matrix.build == 'linux-arm'
+      run: |
+        docker run --rm -v \
+          "$PWD/target:/target:Z" \
+          rustembedded/cross:arm-unknown-linux-gnueabihf \
+          arm-linux-gnueabihf-strip \
+          /target/arm-unknown-linux-gnueabihf/release/rg
+
+    - name: Upload release archive
+      uses: actions/upload-release-asset@v1.0.1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ${{ env.ASSET }}
+        asset_name: ${{ env.ASSET }}
+        asset_content_type: application/octet-stream
